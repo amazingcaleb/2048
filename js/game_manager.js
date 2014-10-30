@@ -9,6 +9,7 @@ function GameManager(size, InputManager, Actuator, StorageManager) {
   this.inputManager.on("move", this.move.bind(this));
   this.inputManager.on("restart", this.restart.bind(this));
   this.inputManager.on("keepPlaying", this.keepPlaying.bind(this));
+  this.inputManager.on("aimove", this.aimove.bind(this));
 
   this.setup();
 }
@@ -72,6 +73,7 @@ GameManager.prototype.addRandomTile = function () {
     var tile = new Tile(this.grid.randomAvailableCell(), value);
 
     this.grid.insertTile(tile);
+    return tile;
   }
 };
 
@@ -95,6 +97,7 @@ GameManager.prototype.actuate = function () {
     bestScore:  this.storageManager.getBestScore(),
     terminated: this.isGameTerminated()
   });
+
 
 };
 
@@ -126,6 +129,8 @@ GameManager.prototype.moveTile = function (tile, cell) {
   tile.updatePosition(cell);
 };
 
+var DirNames = [ 'up', 'right', 'down', 'left' ];
+ 
 // Move tiles on the grid in the specified direction
 GameManager.prototype.move = function (direction) {
   // 0: up, 1: right, 2: down, 3: left
@@ -180,12 +185,16 @@ GameManager.prototype.move = function (direction) {
   });
 
   if (moved) {
-    this.addRandomTile();
+
+    var tile = this.addRandomTile();
 
     if (!this.movesAvailable()) {
       this.over = true; // Game over!
     }
 
+    ailog(sprintf("MV:%-5s :: %4d (%d,%d:%d) [%s]", 
+		  DirNames[direction], this.score, tile.x, tile.y, tile.value,
+		  this.board()));
     this.actuate();
   }
 };
@@ -270,3 +279,42 @@ GameManager.prototype.tileMatchesAvailable = function () {
 GameManager.prototype.positionsEqual = function (first, second) {
   return first.x === second.x && first.y === second.y;
 };
+
+GameManager.prototype.board = function() {
+    cells = this.grid.cells;
+    board = [];
+    for (row = 0; row < this.size; row++) {
+	for (col = 0; col < this.size; col++) {
+	    tile = cells[col][row];
+	    board.push(tile ? tile.value : 0);
+	}
+    }
+    return board.join(",")
+};
+
+GameManager.prototype.aimove = function() {
+    // URL to the AI includes the board and the score
+    score = this.score;
+    board = this.board();
+    aiqry = sprintf("ai.py?board=%s&score=%s", board, score);
+    // Pass any other url params on the page to the AI
+    extra = window.location.search.substring(1);
+    if (extra.length > 0) {
+	aiqry += "&" + extra
+    }
+    // Sync call the AI
+    xmlhttp = new XMLHttpRequest();
+    xmlhttp.open("GET",aiqry,false);
+    xmlhttp.send();
+    // First line of response is the move, second line is optional explanation to log
+    answer = xmlhttp.responseText.split("\n");
+    move   = (answer.length > 0 ? answer[0] : "No answer");
+    ailog(sprintf("AI:%-5s%s", move, (answer.length > 1 ? " :: " + answer[1] : "")));
+    // Map move to numeric direction used by the game, and move
+    for (var n in DirNames) {
+	if (DirNames[n] == move) {
+            this.move(n)
+            return;
+	}
+    }
+}
